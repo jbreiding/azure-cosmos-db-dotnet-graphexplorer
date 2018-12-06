@@ -1,6 +1,7 @@
 namespace GraphExplorer.Controllers
 {
-    using Microsoft.Azure.Graphs;
+    using Gremlin.Net.Driver;
+    using Gremlin.Net.Structure.IO.GraphSON;
     using Microsoft.Azure.Documents;
     using System.Linq;
     using GraphExplorer.Configuration;
@@ -10,16 +11,21 @@ namespace GraphExplorer.Controllers
     using Microsoft.Azure.Documents.Client;
     using System;
     using Microsoft.Extensions.Options;
+    using Newtonsoft.Json;
 
     [Route("api/[controller]")]
     public class GremlinController : Controller
     {
         private readonly DocDbConfig dbConfig;
-        private readonly DocumentClient client; 
+        private readonly GremlinConfig gremlinConfig;
+        private readonly DocumentClient client;
+        private GremlinClient gremlinClient;
 
-        public GremlinController(IOptions<DocDbConfig> configSettings)
+        public GremlinController(IOptions<DocDbConfig> configSettings, IOptions<GremlinConfig> gremlinConfigSettings)
         {
-            dbConfig = configSettings.Value;            
+            dbConfig = configSettings.Value;
+            gremlinConfig = gremlinConfigSettings.Value;
+
             client = new DocumentClient(new Uri(dbConfig.Endpoint), dbConfig.AuthKey, new ConnectionPolicy { EnableEndpointDiscovery = false });
         }
 
@@ -54,21 +60,28 @@ namespace GraphExplorer.Controllers
             return results;
         }
 
-        private async Task<List<dynamic>> ExecuteQuery(DocumentCollection coll, string query)
+        private async Task<IReadOnlyCollection<dynamic>> ExecuteQuery(DocumentCollection coll, string query)
         {
-            var results = new List<dynamic>();
-
-            var gremlinQuery = client.CreateGremlinQuery(coll, query);
-
-            while (gremlinQuery.HasMoreResults)
+            if(null == gremlinClient)
             {
-                foreach (var result in await gremlinQuery.ExecuteNextAsync())
-                {
-                    results.Add(result);
-                }
+                var gremlinContext = new GremlinServer(
+                        hostname: gremlinConfig.Endpoint,
+                        port: gremlinConfig.Port,
+                        enableSsl: true,
+                        username: $"/coll.AltLink",
+                        password: gremlinConfig.AuthKey);
+
+                gremlinClient = new GremlinClient(
+                    gremlinContext, 
+                    new GraphSON2Reader(), 
+                    new GraphSON2Writer(), 
+                    GremlinClient.GraphSON2MimeType
+                    );
             }
 
-            return results;
+            var gremlinQuery = await gremlinClient.SubmitAsync<dynamic>(query);
+
+            return gremlinQuery;
         }
     }
 }

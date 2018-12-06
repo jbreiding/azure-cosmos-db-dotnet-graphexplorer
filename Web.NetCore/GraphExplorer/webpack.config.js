@@ -1,13 +1,27 @@
 const path = require('path');
 const webpack = require('webpack');
-const { AureliaPlugin } = require('aurelia-webpack-plugin');
+const { AureliaPlugin, ModuleDependenciesPlugin, GlobDependenciesPlugin } = require("aurelia-webpack-plugin");
+const UglifyJsPlugin = require("uglifyjs-webpack-plugin");
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+const OptimizeCSSAssetsPlugin = require("optimize-css-assets-webpack-plugin");
+const HtmlWebpackPlugin = require("html-webpack-plugin");
+
 const bundleOutputDir = './wwwroot/dist';
 
-module.exports = (env) => {
-    const isDevBuild = !(env && env.prod);
+module.exports = (env, argv) => {
+    if ((!argv || !argv.mode) && process.env.ASPNETCORE_ENVIRONMENT === "Development") {
+        argv = { mode: "development" };
+    }
+    console.log("mode=", argv.mode);
+    const isDevBuild = argv.mode !== "production";
+    const cssLoader = { loader: isDevBuild ? "css-loader" : "css-loader?minimize" };
+
     return [{
-        stats: { modules: false },
-        entry: { 'app': 'aurelia-bootstrapper' },
+        target: "web",
+        mode: isDevBuild ? "development" : "production",
+        entry: {
+            'app': ["es6-promise/auto", "aurelia-bootstrapper"]
+        },
         resolve: {
             extensions: ['.ts', '.js'],
             modules: ['ClientApp', 'node_modules'],
@@ -15,31 +29,59 @@ module.exports = (env) => {
         output: {
             path: path.resolve(bundleOutputDir),
             publicPath: '/dist/',
-            filename: '[name].js'
+            filename: '[name].js',
+            chunkFilename: "[name].js"
         },
         module: {
             rules: [
-                { test: /\.ts$/i, loader: 'ts-loader' },
-                { test: /\.html$/i, use: 'html-loader' },
-                { test: /\.css$/i, use: isDevBuild ? 'css-loader' : 'css-loader?minimize' },
-                { test: /\.(png|woff|woff2|eot|ttf|svg)$/, loader: 'url-loader?limit=100000' }
+                { test: /\.(woff|woff2)(\?|$)/, loader: "url-loader?limit=1" },
+                { test: /\.(png|eot|ttf|svg)(\?|$)/, loader: "url-loader?limit=100000" },
+                { test: /\.ts$/i, include: [/ClientApp/, /node_modules/], use: "awesome-typescript-loader" },
+                { test: /\.html$/i, use: "html-loader" },
+                { test: /\.css(\?|$)/, include: [/node_modules/], use: [{ loader: MiniCssExtractPlugin.loader }, cssLoader] },
+                { test: /\.css$/i, exclude: [/node_modules/], issuer: /\.html$/i, use: cssLoader },
+                { test: /\.css$/i, exclude: [/node_modules/], issuer: [{ not: [{ test: /\.html$/i }] }], use: ["style-loader", cssLoader] },
+                { test: /\.scss$/i, issuer: /(\.html|empty-entry\.js)$/i, use: [cssLoader, "sass-loader"] },
+                { test: /\.scss$/i, issuer: /\.ts$/i, use: ["style-loader", cssLoader, "sass-loader"] }]
+        },
+        optimization: {
+            splitChunks: {
+                chunks: "all",
+                // uncomment the following to create a separate bundle for each npm module
+				/* maxInitialRequests: Infinity,
+				minSize: 0,
+				cacheGroups: {
+					vendor: {
+						test: /[\\/]node_modules[\\/]/,
+						name(module) {
+							// get the name. E.g. node_modules/packageName/not/this/part.js
+							// or node_modules/packageName
+							const packageName = module.context.match(/[\\/]node_modules[\\/](.*?)([\\/]|$)/)[1];
+							// npm package names are URL-safe, but some servers don't like @ symbols
+							return `npm.${packageName.replace('@', '')}`;
+						}
+					}
+				}*/
+            },
+            minimizer: [
+                new UglifyJsPlugin({
+                    cache: true,
+                    parallel: true,
+                    sourceMap: true // set to true if you want JS source maps
+                }),
+                new OptimizeCSSAssetsPlugin({})
             ]
         },
+        devtool: isDevBuild ? "source-map" : false,
+        performance: { hints: false },
         plugins: [
-            new webpack.ProvidePlugin({ 'Promise': 'bluebird' }),
+            new webpack.ProvidePlugin({ $: "jquery", jQuery: "jquery", "window.jQuery": "jquery" }),
             new webpack.DefinePlugin({ IS_DEV_BUILD: JSON.stringify(isDevBuild) }),
-            new webpack.DllReferencePlugin({
-                context: __dirname,
-                manifest: require('./wwwroot/dist/vendor-manifest.json')
-            }),
-            new AureliaPlugin({ aureliaApp: 'boot' })
-        ].concat(isDevBuild ? [
-            new webpack.SourceMapDevToolPlugin({
-                filename: '[file].map', // Remove this line if you prefer inline source maps
-                moduleFilenameTemplate: path.relative(bundleOutputDir, '[resourcePath]')  // Point sourcemap entries to the original file locations on disk
-            })
-        ] : [
-                new webpack.optimize.UglifyJsPlugin()
-            ])
+            new AureliaPlugin({ aureliaApp: 'boot' }),
+            new HtmlWebpackPlugin({ template: 'Views/Shared/_LayoutTemplate.cshtml', filename: "../../Views/Shared/_Layout.cshtml", inject: false, metadata: {}, alwaysWriteToDisk: true }),
+            new GlobDependenciesPlugin({ "boot": ["ClientApp/**/*.{ts,html}"] }),
+            new ModuleDependenciesPlugin({}),
+            new MiniCssExtractPlugin()
+        ]
     }];
 }

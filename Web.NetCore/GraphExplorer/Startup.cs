@@ -20,7 +20,9 @@ namespace GraphExplorer
                 .SetBasePath(env.ContentRootPath)
                 .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
                 .AddJsonFile($"appsettings.{env.EnvironmentName}.json", optional: true)
+                .AddUserSecrets<Startup>()
                 .AddEnvironmentVariables();
+
             Configuration = builder.Build();
         }
 
@@ -35,6 +37,7 @@ namespace GraphExplorer
             services.AddOptions();
 
             services.Configure<DocDbConfig>(Configuration.GetSection("DocumentDBConfig"));
+            services.Configure<GremlinConfig>(Configuration.GetSection("GremlinConfig"));
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
