@@ -68,7 +68,7 @@ namespace GraphExplorer.Controllers
                         hostname: gremlinConfig.Endpoint,
                         port: gremlinConfig.Port,
                         enableSsl: true,
-                        username: $"/coll.AltLink",
+                        username: $"/{coll.AltLink}",
                         password: gremlinConfig.AuthKey);
 
                 gremlinClient = new GremlinClient(
